@@ -43,6 +43,7 @@ from strategies import (
     get_ema_signal,
     get_price_action_signal,
     evaluate_confirmation,
+    get_trend_direction,
 )
 from claude_brain import get_trade_decision
 from risk_gate import run_risk_gate
@@ -289,6 +290,20 @@ def scan_symbol(
 
     result["decision"] = decision
 
+    # Trend pre-filter: override action to hold if it opposes the macro session trend
+    if config.TREND_FILTER_ENABLED and decision.get("action") in ("buy", "sell"):
+        _trend = get_trend_direction(df, config.TREND_FILTER_PERIOD)
+        _action = decision["action"]
+        if (_action == "buy" and _trend == "bear") or (_action == "sell" and _trend == "bull"):
+            log.info(
+                "TREND FILTER: blocked %s %s — session trend is %s (price %s EMA%d)",
+                _action.upper(), symbol, _trend,
+                "below" if _trend == "bear" else "above",
+                config.TREND_FILTER_PERIOD,
+            )
+            decision["action"] = "hold"
+            decision["override_reason"] = f"trend_filter: session trend is {_trend}"
+
     # Risk gate
     positions = trading_client.get_all_positions()
     existing_pos = next(
@@ -332,6 +347,7 @@ def scan_symbol(
             portfolio_value=portfolio_value,
             current_price=current_price,
             trading_client=trading_client,
+            existing_position=existing_pos,
         )
         result["execution"] = execution
         if execution and execution.get("fill_price"):

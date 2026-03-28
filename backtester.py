@@ -33,6 +33,7 @@ from strategies import (
     get_ema_signal,
     get_price_action_signal,
     evaluate_confirmation,
+    get_trend_direction,
 )
 import config
 
@@ -410,6 +411,12 @@ def run_backtest(
         direction = report["direction"]
         if direction not in ("buy", "sell"):
             continue
+
+        # Trend pre-filter: skip signals that oppose the macro session trend
+        if config.TREND_FILTER_ENABLED:
+            trend = get_trend_direction(window, config.TREND_FILTER_PERIOD)
+            if (direction == "buy" and trend == "bear") or (direction == "sell" and trend == "bull"):
+                continue
 
         # 4. Simulate entry at the NEXT bar's open (avoid lookahead bias)
         if i + 1 >= len(df):

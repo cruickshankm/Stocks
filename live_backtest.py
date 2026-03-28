@@ -40,6 +40,7 @@ from strategies import (
     get_ema_signal,
     get_price_action_signal,
     evaluate_confirmation,
+    get_trend_direction,
 )
 import config
 
@@ -61,12 +62,15 @@ class SimTrade:
     entry_bar: int          # global bar index (position in the merged timeline)
     entry_time: datetime
     entry_price: float
-    stop_price: float
+    stop_price: float       # initial hard stop (kept for reference; trailing stop used in sim)
     target_price: float
     shares: int
     grade: str
     signal_count: str
     confirmed: bool
+    trail_pct: float = 0.05             # trailing stop percentage (matches STOP_LOSS_PCT)
+    trail_high: float = 0.0             # best price seen since entry (long: highest high)
+    trail_low: float = float("inf")     # best price seen since entry (short: lowest low)
 
     exit_bar: Optional[int] = None
     exit_time: Optional[datetime] = None
@@ -260,34 +264,34 @@ def _fetch_bars(
 
 def _check_exits(trade: SimTrade, bar: pd.Series, bar_idx: int) -> Optional[str]:
     """
-    Check stop/target against bar high/low. Sets exit fields in-place.
+    Check fixed stop/target against bar high/low. Sets exit fields in-place.
     Stop is checked before target (conservative — assumes worst fills intra-bar).
     """
     if trade.direction == "long":
         if bar["low"] <= trade.stop_price:
-            trade.exit_price = trade.stop_price
+            trade.exit_price  = trade.stop_price
             trade.exit_reason = "stop"
-            trade.exit_bar = bar_idx
-            trade.exit_time = bar.name
+            trade.exit_bar    = bar_idx
+            trade.exit_time   = bar.name
             return "stop"
         if bar["high"] >= trade.target_price:
-            trade.exit_price = trade.target_price
+            trade.exit_price  = trade.target_price
             trade.exit_reason = "target"
-            trade.exit_bar = bar_idx
-            trade.exit_time = bar.name
+            trade.exit_bar    = bar_idx
+            trade.exit_time   = bar.name
             return "target"
     else:
         if bar["high"] >= trade.stop_price:
-            trade.exit_price = trade.stop_price
+            trade.exit_price  = trade.stop_price
             trade.exit_reason = "stop"
-            trade.exit_bar = bar_idx
-            trade.exit_time = bar.name
+            trade.exit_bar    = bar_idx
+            trade.exit_time   = bar.name
             return "stop"
         if bar["low"] <= trade.target_price:
-            trade.exit_price = trade.target_price
+            trade.exit_price  = trade.target_price
             trade.exit_reason = "target"
-            trade.exit_bar = bar_idx
-            trade.exit_time = bar.name
+            trade.exit_bar    = bar_idx
+            trade.exit_time   = bar.name
             return "target"
     return None
 
@@ -487,6 +491,12 @@ def run_live_backtest(
             if direction not in ("buy", "sell"):
                 continue
 
+            # Trend pre-filter: skip signals that oppose the macro session trend
+            if config.TREND_FILTER_ENABLED:
+                trend = get_trend_direction(window, config.TREND_FILTER_PERIOD)
+                if (direction == "buy" and trend == "bear") or (direction == "sell" and trend == "bull"):
+                    continue
+
             grade = report["quality"]
             size_modifier = _GRADE_MODIFIER.get(grade, 0.0)
             if size_modifier == 0.0:
@@ -526,6 +536,9 @@ def run_live_backtest(
                 grade=grade,
                 signal_count=report["signal_count"],
                 confirmed=True,
+                trail_pct=_stop,
+                trail_high=entry_price,   # initialise at entry so trail starts from entry
+                trail_low=entry_price,
             )
             open_positions[sym] = trade
             result.trades.append(trade)

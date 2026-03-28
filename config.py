@@ -88,6 +88,13 @@ VWAP_SENSITIVITY: float       = _get_env("VWAP_SENSITIVITY",       3.0,  cast=fl
 EMA_FAST: int = _get_env("EMA_FAST", 50,  cast=int)   # fast EMA (e.g. 50)
 EMA_SLOW: int = _get_env("EMA_SLOW", 200, cast=int)   # slow EMA (e.g. 200)
 
+# ─── Trend pre-filter ────────────────────────────────────────────────────────
+# When enabled, signals that go against the session macro trend are blocked.
+# e.g. a BUY signal while price < 200-bar EMA will be skipped.
+TREND_FILTER_ENABLED: bool = _get_env("TREND_FILTER_ENABLED", "true", cast=bool)
+# Number of bars used to compute the macro-trend EMA (200 × 1Min ≈ 3.3 hours)
+TREND_FILTER_PERIOD: int = _get_env("TREND_FILTER_PERIOD", 200, cast=int)
+
 # ─── Bar data ────────────────────────────────────────────────────────────────
 # Timeframe used for live scanning. Options: 1Min, 5Min, 15Min, 1Hour, 1Day
 # Note: EMA_SLOW requires this many bars of history — shorter timeframes generate

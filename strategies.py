@@ -42,6 +42,32 @@ def _ema_series(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 
 
+# ─── Trend pre-filter ─────────────────────────────────────────────────────────
+
+def get_trend_direction(bars: pd.DataFrame, period: int = 200) -> str:
+    """
+    Macro trend direction based on a long-period EMA.
+
+    Returns:
+        'bull'    → price is above the EMA  (favour longs, block shorts)
+        'bear'    → price is below the EMA  (favour shorts, block longs)
+        'neutral' → not enough bars to compute EMA reliably
+
+    Using 200 × 1Min bars ≈ 3.3 hours of intraday context — enough to know
+    whether the session trend is up or down without requiring daily data.
+    """
+    if len(bars) < period + 1:
+        return "neutral"
+    ema = _ema_series(bars["close"], period)
+    close = float(bars["close"].iloc[-1])
+    ema_val = float(ema.iloc[-1])
+    if close > ema_val:
+        return "bull"
+    elif close < ema_val:
+        return "bear"
+    return "neutral"
+
+
 # ─── Strategy 1: MACD Crossover ───────────────────────────────────────────────
 
 def get_macd_signal(

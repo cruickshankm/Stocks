@@ -309,7 +309,14 @@ def scan_symbol(
     existing_pos = next(
         (float(p.qty) for p in positions if p.symbol == symbol), None
     )
-    daily_pnl = db.get_daily_pnl()
+    # Daily P&L from Alpaca account equity (equity - last_equity = today's change).
+    # This is reliable even when bracket stop/target orders are filled by Alpaca
+    # mid-session without the local DB being updated.
+    try:
+        _acct = trading_client.get_account()
+        daily_pnl = float(_acct.equity) - float(_acct.last_equity)
+    except Exception:
+        daily_pnl = db.get_daily_pnl()  # fall back to local DB if API call fails
     current_price = bar_summary.get("current_price", 1.0)
     portfolio_value = portfolio_context.get("portfolio_value", 0.0)
     trade_value = calculate_shares(

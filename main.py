@@ -333,6 +333,7 @@ def scan_symbol(
         existing_position=existing_pos,
         daily_pnl=daily_pnl,
         trading_client=trading_client,
+        pyramid_count=_symbol_entries_today.get(symbol, 0),
     )
 
     result["risk_result"] = risk_result
@@ -358,6 +359,7 @@ def scan_symbol(
         )
         result["execution"] = execution
         if execution and execution.get("fill_price"):
+            _symbol_entries_today[symbol] = _symbol_entries_today.get(symbol, 0) + 1
             direction_label = "long" if decision["action"] == "buy" else "short"
             shares_executed = calculate_shares(
                 portfolio_value, current_price, decision.get("position_size_modifier", 1.0)
@@ -452,6 +454,7 @@ def run_confirm_test(symbols: list[str], trading_client) -> None:
 # ─── End-of-day position close ────────────────────────────────────────────────
 
 _eod_closed_today: bool = False  # ensure we only liquidate once per trading day
+_symbol_entries_today: dict[str, int] = {}  # pyramid entry counter, reset each day
 
 _EOD_VERIFY_ATTEMPTS: int = 4    # re-check attempts after close_all_positions
 _EOD_VERIFY_WAIT_S: float = 3.0  # seconds between each verification poll
@@ -727,9 +730,9 @@ def main() -> None:
     parser.add_argument(
         "--min-grade",
         type=str,
-        default="C",
+        default=config.MIN_GRADE,
         choices=["A", "B", "C"],
-        help="Minimum confirmation grade to trade in live-backtest (default: C).",
+        help="Minimum confirmation grade to trade in live-backtest (default: from .env MIN_GRADE).",
     )
     args = parser.parse_args()
 
@@ -790,6 +793,7 @@ def main() -> None:
                 today = datetime.now().date().day
                 if current_day is not None and today != current_day:
                     _eod_closed_today = False
+                    _symbol_entries_today.clear()
                 current_day = today
 
                 # Close all positions if we are in the EOD window

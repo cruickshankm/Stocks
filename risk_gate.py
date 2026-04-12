@@ -116,6 +116,24 @@ def check_position_limits(
     return True, f"position count OK ({open_position_count}/{config.MAX_OPEN_POSITIONS})"
 
 
+def check_pyramid_limit(
+    existing_position,
+    pyramid_count: int,
+) -> tuple[bool, str]:
+    """
+    Block add-ons to an existing position once MAX_PYRAMID_ENTRIES is reached.
+    pyramid_count tracks how many times we have already added today.
+    """
+    if existing_position is None or existing_position == 0:
+        return True, "new position — pyramid limit not applicable"
+    if pyramid_count >= config.MAX_PYRAMID_ENTRIES:
+        return False, (
+            f"Pyramid limit reached: already added {pyramid_count}x to this "
+            f"position (max {config.MAX_PYRAMID_ENTRIES})"
+        )
+    return True, f"pyramid OK ({pyramid_count}/{config.MAX_PYRAMID_ENTRIES} add-ons used)"
+
+
 def check_position_size(
     trade_value: float,
     portfolio_value: float,
@@ -169,6 +187,7 @@ def run_risk_gate(
     existing_position: Optional[float] = None,
     daily_pnl: float = 0.0,
     trading_client=None,
+    pyramid_count: int = 0,
 ) -> dict:
     """
     Runs all risk checks in order. Returns a result dict:
@@ -211,6 +230,11 @@ def run_risk_gate(
     ok, reason = check_position_limits(open_position_count, existing_position)
     if not _run("position_limits", ok, reason):
         return _blocked("position_limits", reason, checks_run)
+
+    # 4b. Pyramid cap
+    ok, reason = check_pyramid_limit(existing_position, pyramid_count)
+    if not _run("pyramid_limit", ok, reason):
+        return _blocked("pyramid_limit", reason, checks_run)
 
     # 5. Position size
     ok, reason = check_position_size(trade_value, portfolio_value)

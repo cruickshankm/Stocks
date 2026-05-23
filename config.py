@@ -114,6 +114,14 @@ MARKET_CLOSE_MINUTE: int = _get_env("MARKET_CLOSE_MINUTE", 0, cast=int)
 # fill before the exchange closes and avoids routing issues in the final minute.
 EOD_CLOSE_MINUTES_BEFORE: int = _get_env("EOD_CLOSE_MINUTES_BEFORE", 10, cast=int)
 
+# ─── Trade timeout ───────────────────────────────────────────────────────────
+# Close a position that has been open for TRADE_TIMEOUT_BARS bars without
+# moving TRADE_TIMEOUT_MIN_PROGRESS_PCT toward its target.
+# Set TRADE_TIMEOUT_BARS=0 to disable (default — no timeout).
+# Example: 120 bars on 1Min ≈ 2 hours; progress threshold of 0.02 = 2% toward target.
+TRADE_TIMEOUT_BARS: int = _get_env("TRADE_TIMEOUT_BARS", 0, cast=int)
+TRADE_TIMEOUT_MIN_PROGRESS_PCT: float = _get_env("TRADE_TIMEOUT_MIN_PROGRESS_PCT", 0.02, cast=float)
+
 # ─── Database ─────────────────────────────────────────────────────────────────
 DB_PATH: str = _get_env("DB_PATH", "trading_log.db")
 

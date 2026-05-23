@@ -319,6 +319,15 @@ def get_confirmation_stats() -> dict:
     return result
 
 
+def get_open_trades() -> list[dict]:
+    """Return all open (unclosed) trade records ordered by entry time."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM trades WHERE closed = 0 ORDER BY ts ASC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_recent_decisions(symbol: Optional[str] = None, limit: int = 50) -> list[dict]:
     """Return the most recent decision records, optionally filtered by symbol."""
     if symbol:

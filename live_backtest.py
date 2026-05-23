@@ -262,10 +262,28 @@ def _fetch_bars(
 
 # ─── Exit checker ─────────────────────────────────────────────────────────────
 
-def _check_exits(trade: SimTrade, bar: pd.Series, bar_idx: int) -> Optional[str]:
+def _check_exits(
+    trade: SimTrade,
+    bar: pd.Series,
+    bar_idx: int,
+    timeout_bars: int = 0,
+    timeout_min_progress_pct: float = 0.02,
+    timeout_relative: bool = False,
+) -> Optional[str]:
     """
-    Check fixed stop/target against bar high/low. Sets exit fields in-place.
-    Stop is checked before target (conservative — assumes worst fills intra-bar).
+    Check stop/target and optional timeout against bar OHLC. Sets exit fields in-place.
+
+    Priority order:
+      1. Stop (conservative — assumes worst fill intra-bar)
+      2. Target
+      3. Timeout — if the trade has been open >= timeout_bars bars without
+         making sufficient progress toward its target, close at bar close.
+         Pass timeout_bars=0 to disable.
+
+    timeout_relative=False (default): timeout_min_progress_pct is an absolute fraction
+        of entry price (e.g. 0.02 = must have moved 2% toward target).
+    timeout_relative=True: timeout_min_progress_pct is a fraction of the full target
+        distance (e.g. 0.15 = must be 15% of the way to target, i.e. 0.9% for a 6% target).
     """
     if trade.direction == "long":
         if bar["low"] <= trade.stop_price:
@@ -293,6 +311,27 @@ def _check_exits(trade: SimTrade, bar: pd.Series, bar_idx: int) -> Optional[str]
             trade.exit_bar    = bar_idx
             trade.exit_time   = bar.name
             return "target"
+
+    if timeout_bars > 0:
+        hold = bar_idx - trade.entry_bar
+        if hold >= timeout_bars:
+            current_price = float(bar["close"])
+            if trade.direction == "long":
+                progress = (current_price - trade.entry_price) / trade.entry_price
+            else:
+                progress = (trade.entry_price - current_price) / trade.entry_price
+            if timeout_relative:
+                target_move = abs(trade.target_price - trade.entry_price) / trade.entry_price
+                threshold = target_move * timeout_min_progress_pct
+            else:
+                threshold = timeout_min_progress_pct
+            if progress < threshold:
+                trade.exit_price  = current_price
+                trade.exit_reason = "timeout"
+                trade.exit_bar    = bar_idx
+                trade.exit_time   = bar.name
+                return "timeout"
+
     return None
 
 
@@ -313,6 +352,9 @@ def run_live_backtest(
     max_position_pct: Optional[float] = None,
     max_open_positions: Optional[int] = None,
     min_grade: str = "C",
+    timeout_bars: Optional[int] = None,
+    timeout_min_progress_pct: Optional[float] = None,
+    timeout_relative: bool = False,
 ) -> LiveBacktestResult:
     """
     Simulate live trading across all symbols simultaneously.
@@ -343,6 +385,9 @@ def run_live_backtest(
     _target    = take_profit_pct or config.TAKE_PROFIT_PCT
     _max_pos   = max_position_pct  or config.MAX_POSITION_SIZE
     _max_slots = max_open_positions if max_open_positions is not None else config.MAX_OPEN_POSITIONS
+    _timeout_bars     = timeout_bars             if timeout_bars             is not None else config.TRADE_TIMEOUT_BARS
+    _timeout_progress = timeout_min_progress_pct if timeout_min_progress_pct is not None else config.TRADE_TIMEOUT_MIN_PROGRESS_PCT
+    _timeout_relative = timeout_relative
 
     tz = timezone.utc
     end_dt = (
@@ -360,13 +405,19 @@ def run_live_backtest(
     # ── Fetch data for all symbols ────────────────────────────────────────────
     console.print()
     console.print(Rule("[bold cyan]LIVE-STYLE BACKTEST[/bold cyan]"))
+    if _timeout_bars > 0:
+        _mode_str = f"rel {_timeout_progress*100:.0f}% of target" if _timeout_relative else f"abs {_timeout_progress*100:.0f}% progress"
+        _timeout_display = f"Timeout: [white]{_timeout_bars} bars / {_mode_str}[/white]"
+    else:
+        _timeout_display = "Timeout: [dim]off[/dim]"
     console.print(
         f"  Period    : [white]{start_dt.date()} to {end_dt.date()}[/white]\n"
         f"  Symbols   : [white]{', '.join(symbols)}[/white]\n"
         f"  Timeframe : [white]{timeframe}[/white]   "
         f"Capital: [white]${initial_capital:,.0f}[/white]   "
         f"Max positions: [white]{_max_slots}[/white]   "
-        f"Min grade: [white]{min_grade.upper()}[/white]"
+        f"Min grade: [white]{min_grade.upper()}[/white]   "
+        f"{_timeout_display}"
     )
     console.print()
 
@@ -428,7 +479,7 @@ def run_live_backtest(
             # Skip the exact entry bar — don't let stop/target fire on entry
             if bar_counter <= trade.entry_bar:
                 continue
-            exit_reason = _check_exits(trade, bar, bar_counter)
+            exit_reason = _check_exits(trade, bar, bar_counter, _timeout_bars, _timeout_progress, _timeout_relative)
             if exit_reason:
                 capital += trade.pnl
                 open_positions[sym] = None
@@ -688,9 +739,10 @@ def print_live_backtest_report(result: LiveBacktestResult) -> None:
     console.print(grade_table)
 
     # ── Exit reason breakdown ─────────────────────────────────────────────────
-    stops   = [t for t in result.closed_trades if t.exit_reason == "stop"]
-    targets = [t for t in result.closed_trades if t.exit_reason == "target"]
-    eod     = [t for t in result.closed_trades if t.exit_reason == "end_of_data"]
+    stops    = [t for t in result.closed_trades if t.exit_reason == "stop"]
+    targets  = [t for t in result.closed_trades if t.exit_reason == "target"]
+    timeouts = [t for t in result.closed_trades if t.exit_reason == "timeout"]
+    eod      = [t for t in result.closed_trades if t.exit_reason == "end_of_data"]
 
     exit_table = Table(title="Exit Breakdown", box=box.ROUNDED, header_style="bold cyan")
     exit_table.add_column("Exit reason", width=16)
@@ -698,9 +750,10 @@ def print_live_backtest_report(result: LiveBacktestResult) -> None:
     exit_table.add_column("Avg P&L",     width=12, justify="right")
 
     for label, group, colour in [
-        ("Target hit",  targets, "green"),
-        ("Stop hit",    stops,   "red"),
-        ("End of data", eod,     "dim"),
+        ("Target hit",  targets,  "green"),
+        ("Stop hit",    stops,    "red"),
+        ("Timeout",     timeouts, "yellow"),
+        ("End of data", eod,      "dim"),
     ]:
         if group:
             avg = sum(t.pnl for t in group) / len(group)

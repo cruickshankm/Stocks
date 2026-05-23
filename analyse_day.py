@@ -128,9 +128,10 @@ def analyse(date_str):
                 "pa": pa["signal"],
             })
 
-    print(f"\n{'─'*90}")
+    sep = "-" * 90
+    print(f"\n{sep}")
     print(f"  SIGNALS FIRED ON {date_str} (Grade A/B confirmed only)")
-    print(f"{'─'*90}")
+    print(sep)
 
     if not signals_found:
         print("  No Grade A/B signals fired on this date.")
@@ -145,7 +146,7 @@ def analyse(date_str):
                 unique.append(s)
 
         print(f"  {'Time':>6}  {'Symbol':<6}  {'Dir':<5}  {'Grade'}  {'Votes':<6}  {'Price':>8}  MACD    VWAP    EMA     PA")
-        print(f"  {'─'*6}  {'─'*6}  {'─'*5}  {'─'*5}  {'─'*6}  {'─'*8}  {'─'*6}  {'─'*6}  {'─'*6}  {'─'*6}")
+        print(f"  {'--':>6}  {'------':<6}  {'-----':<5}  {'-----'}  {'------':<6}  {'--------':>8}  {'------'}  {'------'}  {'------'}  {'------'}")
         for s in unique:
             print(
                 f"  {s['time_et']:>6}  {s['symbol']:<6}  {s['direction']:<5}  "
@@ -154,7 +155,7 @@ def analyse(date_str):
             )
 
     print(f"\n  Total unique confirmed signals: {len(seen) if signals_found else 0}")
-    print(f"{'─'*90}\n")
+    print(f"{sep}\n")
 
 
 if __name__ == "__main__":

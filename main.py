@@ -627,6 +627,82 @@ def close_all_positions_eod(trading_client, dashboard: Optional[LiveDashboard]) 
     _eod_closed_today = True
 
 
+# ─── Trade timeout check (live bot) ──────────────────────────────────────────
+
+_BAR_TIMEFRAME_MINUTES = {
+    "1Min": 1, "5Min": 5, "15Min": 15, "1Hour": 60, "1Day": 1440,
+}
+
+
+def _check_position_timeouts(trading_client) -> int:
+    """
+    Close any open positions that have been held for >= TRADE_TIMEOUT_BARS bars
+    without moving TRADE_TIMEOUT_MIN_PROGRESS_PCT toward their target.
+
+    Returns the number of positions closed by timeout.
+    """
+    if config.TRADE_TIMEOUT_BARS <= 0:
+        return 0
+
+    bar_minutes = _BAR_TIMEFRAME_MINUTES.get(config.BAR_TIMEFRAME, 1)
+    timeout_minutes = config.TRADE_TIMEOUT_BARS * bar_minutes
+    now_utc = datetime.now(timezone.utc)
+
+    open_db_trades = db.get_open_trades()
+    if not open_db_trades:
+        return 0
+
+    closed_count = 0
+    for trade in open_db_trades:
+        symbol = trade["symbol"]
+        fill_price = trade["fill_price"]
+        target_price = trade["target_price"]
+        direction = trade["direction"]
+        trade_id = trade["id"]
+
+        if not fill_price or not target_price:
+            continue
+
+        try:
+            entry_dt = datetime.fromisoformat(trade["ts"]).replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+
+        minutes_held = (now_utc - entry_dt).total_seconds() / 60
+        if minutes_held < timeout_minutes:
+            continue
+
+        try:
+            pos = trading_client.get_open_position(symbol)
+            current_price = float(pos.current_price)
+        except Exception:
+            continue
+
+        if direction == "long":
+            progress = (current_price - fill_price) / fill_price
+        else:
+            progress = (fill_price - current_price) / fill_price
+
+        if progress >= config.TRADE_TIMEOUT_MIN_PROGRESS_PCT:
+            continue
+
+        log.info(
+            "TIMEOUT: closing %s %s — held %.0f min (>= %d bars), "
+            "progress %.2f%% < %.0f%% threshold",
+            direction.upper(), symbol,
+            minutes_held, config.TRADE_TIMEOUT_BARS,
+            progress * 100, config.TRADE_TIMEOUT_MIN_PROGRESS_PCT * 100,
+        )
+        try:
+            trading_client.close_position(symbol)
+            db.close_trade(trade_id, current_price)
+            closed_count += 1
+        except Exception as exc:
+            log.error("TIMEOUT: failed to close %s: %s", symbol, exc)
+
+    return closed_count
+
+
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
 def run_once(symbols: list[str], trading_client, dashboard: Optional[LiveDashboard]) -> int:
@@ -636,6 +712,8 @@ def run_once(symbols: list[str], trading_client, dashboard: Optional[LiveDashboa
         if dashboard:
             dashboard.update([], status="Market closed (waiting for 09:30 ET)", last_scan=datetime.now())
         return 0
+
+    _check_position_timeouts(trading_client)
 
     portfolio_context = _get_portfolio_context(trading_client)
     symbol_reports = []
@@ -734,6 +812,36 @@ def main() -> None:
         choices=["A", "B", "C"],
         help="Minimum confirmation grade to trade in live-backtest (default: from .env MIN_GRADE).",
     )
+    parser.add_argument(
+        "--timeout-bars",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Close positions open >= N bars without making sufficient progress toward target. "
+            "0 = disabled (default: TRADE_TIMEOUT_BARS from .env)."
+        ),
+    )
+    parser.add_argument(
+        "--timeout-progress",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help=(
+            "Minimum fractional progress toward target to avoid timeout "
+            "(e.g. 0.02 = 2%%). Default: TRADE_TIMEOUT_MIN_PROGRESS_PCT from .env."
+        ),
+    )
+    parser.add_argument(
+        "--timeout-relative",
+        action="store_true",
+        default=False,
+        help=(
+            "Interpret --timeout-progress as a fraction of the full target distance "
+            "rather than an absolute price move (e.g. 0.15 = must be 15%% of the way "
+            "to target; for a 6%% target that means 0.9%%)."
+        ),
+    )
     args = parser.parse_args()
 
     # Support comma-separated symbols: --symbol AAPL,MSFT,GLD
@@ -753,6 +861,9 @@ def main() -> None:
             mode=args.mode,
             timeframe=args.timeframe or config.BAR_TIMEFRAME,
             min_grade=args.min_grade,
+            timeout_bars=args.timeout_bars,
+            timeout_min_progress_pct=args.timeout_progress,
+            timeout_relative=args.timeout_relative,
         )
         print_live_backtest_report(result)
         sys.exit(0)

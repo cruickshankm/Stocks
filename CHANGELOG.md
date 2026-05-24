@@ -7,16 +7,17 @@ Each entry includes a full config snapshot so any version can be exactly reprodu
 
 ## ⏭ NEXT SESSION — PICK UP HERE
 
-**Status as of 2026-05-23 (third session) end**
+**Status as of 2026-05-24 session end**
 
-Active config **unchanged** — `WATCHLIST=UCO,QQQ,IWM,XLE,NVDA`, `BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`.
-All sims this session ran worse than the 60-day baseline on return. Baseline remains the best overall config.
+Active config **REVERTED** to `WATCHLIST=UCO,QQQ,IWM,XLE,NVDA` (TQQQ + SOXL removed after disastrous 1-month test below).
+`BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, no timeout.
 
-**Code change added this session:** `--timeout-relative` flag implemented in `live_backtest.py` and `main.py`. No `.env` change needed to use it — pass via CLI only.
+**🚫 DO NOT RE-TEST:**
+- **TQQQ and SOXL on 1Min bars** — total disaster (-2.76% in 1 month, SOXL alone -$2,637 over 29 trades at 17.2% win). 3x-leveraged ETFs are too volatile for a 1Min/2% stop strategy. They get chopped to pieces.
 
-**What to test next:**
-1. **Selective watchlist expansion** — QQQ, IWM and NVDA all have strong win rates when they fire. Adding another high-quality ETF (e.g. SPY, TQQQ, SOXL) could increase trade frequency without degrading quality. Never tested.
-2. **Tighter stop on XLE** — XLE fires 7–15 times per 60-day period at 40–43% win rate. Stop at 1.5% instead of 2% for XLE specifically (not possible per-symbol without code change, but could test global `STOP_LOSS_PCT=0.015` to see the impact).
+**What to test next (safe ideas only):**
+1. **Non-leveraged ETF expansion** — try adding SPY (SPDR S&P 500), DIA (Dow), or XLK (tech sector) instead of leveraged products. These move ~1% per day, similar to current watchlist.
+2. **Tighter stop on XLE** — XLE fires 7–15 times per 60-day period at 40–43% win rate. Test global `STOP_LOSS_PCT=0.015` to see the impact (would also affect other symbols).
 3. **Capital scaling** — the strategy averages ~$780/week at $100k. To reach the $5k/week goal requires ~$640k capital. If strategy quality is confirmed, scaling capital is the fastest path to the weekly target.
 
 **Current 60-day baseline to beat:** +9.36% return, 22.72 Sharpe, 1.48% max DD, 55.6% win rate (60-day Mar 23–May 22, $100k, 1Min, UCO/QQQ/IWM/XLE/NVDA).
@@ -57,6 +58,70 @@ The trade timeout feature was built (code is done, all files updated) but the fi
 **Once a winning timeout config is found**, set `TRADE_TIMEOUT_BARS` and `TRADE_TIMEOUT_MIN_PROGRESS_PCT` in `.env` and it goes live automatically — no further code changes needed.
 
 **Current baseline to beat:** +14.43% return, 20.98 Sharpe, 1.18% max DD, 55.6% win rate (60-day, $100k, no timeout).
+
+---
+
+## [2026-05-24] FAILED experiment: adding TQQQ + SOXL to watchlist
+
+**Author:** matthew
+**Session date:** 2026-05-24
+**Test period:** 2026-04-24 to 2026-05-24 (1 month)
+**Verdict:** ❌ DISASTER — REVERTED IMMEDIATELY
+
+---
+
+### What happened
+
+After session 3 noted that QQQ/IWM/NVDA had strong win rates when they fired, the suggestion was to add another high-quality ETF to increase trade frequency. TQQQ (3x QQQ) and SOXL (3x semiconductor) were added to the watchlist. The 1-month backtest result:
+
+| Metric | Result |
+|--------|--------|
+| Total return | **-2.76%** (-$2,756) |
+| Sharpe ratio | -5.66 |
+| Max drawdown | 3.81% |
+| Total trades | 45 (vs ~9 baseline) |
+| Win rate | 22.2% |
+| Profit factor | 0.73 |
+
+### Per-symbol breakdown
+
+| Symbol | Trades | Win % | P&L | Verdict |
+|--------|:-:|:-:|:-:|:-:|
+| **SOXL** | **29** | **17.2%** | **-$2,637** | ❌ catastrophic |
+| TQQQ | 7 | 28.6% | -$397 | ❌ bad |
+| UCO | 2 | 50% | +$572 | ✅ |
+| IWM | 1 | 100% | +$294 | ✅ |
+| XLE | 4 | 25% | -$4 | ⚠ |
+| NVDA | 2 | 0% | -$585 | ❌ |
+| QQQ | 0 | — | — | quiet |
+
+### Root cause
+
+**Leveraged ETFs (3x) are fundamentally incompatible with this strategy:**
+1. **Volatility kills the 2% stop** — a 0.67% move in QQQ becomes a 2% move in TQQQ, instantly stopping out trades that would have been fine on the underlying.
+2. **Signal noise** — 1Min indicators (MACD, EMA, VWAP) generate WAY more signals on 3x ETFs because every wiggle is amplified. SOXL fired 29 times in a month vs ~2 for normal symbols.
+3. **Stop-out cascade** — 35 of 45 total trades hit stop-loss. The bot was just feeding the spread.
+
+The original 5 symbols (UCO, QQQ, IWM, XLE, NVDA) actually netted **+$278** over the same period. SOXL + TQQQ alone subtracted $3,034.
+
+### Action taken
+
+- `.env` reverted to `WATCHLIST=UCO,QQQ,IWM,XLE,NVDA` immediately.
+- Lesson: **never trade 3x leveraged ETFs on a 1Min strategy with a 2% stop**. They need either a 5% stop or a much higher timeframe (15Min+) to behave.
+- Added 🚫 flag in "next session" to prevent re-testing this.
+
+---
+
+### Active config (after revert)
+
+```
+WATCHLIST=UCO,QQQ,IWM,XLE,NVDA
+STOP_LOSS_PCT=0.02
+TAKE_PROFIT_PCT=0.06
+MIN_GRADE=B
+BAR_TIMEFRAME=1Min
+TRADE_TIMEOUT_BARS=0
+```
 
 ---
 

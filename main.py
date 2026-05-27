@@ -204,12 +204,13 @@ def scan_symbol(
 
     try:
         df = _get_bars(trading_client, symbol, timeframe=config.BAR_TIMEFRAME, limit=config.BAR_LIMIT)
+        log.info("TRACE bars OK %s rows=%d", symbol, len(df))
     except Exception as exc:
-        log.error("Failed to fetch bars for %s: %s", symbol, exc)
+        log.error("TRACE bars FAILED %s: %s", symbol, exc)
         return {"symbol": symbol, "error": str(exc)}
 
     if df.empty or len(df) < 25:
-        log.warning("Insufficient data for %s (%d bars)", symbol, len(df))
+        log.warning("TRACE bars INSUFFICIENT %s (%d bars)", symbol, len(df))
         return {"symbol": symbol, "error": "insufficient bar data"}
 
     # Run all four strategies
@@ -339,12 +340,20 @@ def scan_symbol(
     result["risk_result"] = risk_result
 
     # Log decision to DB
+    log.info(
+        "TRACE log_decision %s action=%s grade=%s risk_approved=%s",
+        symbol,
+        decision.get("action"),
+        decision.get("confirmation_quality"),
+        risk_result.get("approved"),
+    )
     decision_id = db.log_decision(
         symbol=symbol,
         decision=decision,
         confirmation_report=confirmation_report,
         risk_result=risk_result,
     )
+    log.info("TRACE log_decision OK %s id=%s", symbol, decision_id)
 
     # Execute if approved
     if risk_result["approved"] and decision.get("action") != "hold":

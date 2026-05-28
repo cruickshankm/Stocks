@@ -112,13 +112,6 @@ def _get_bars(trading_client, symbol: str, timeframe: str = "1Hour", limit: int 
         feed=_DataFeed.IEX,
     )
 
-    # Temporarily silence Rich output from the alpaca SDK so it doesn't
-    # conflict with our Live dashboard (which crashes on rich.print(None))
-    import rich as _rich
-    import rich.console as _rc
-    _original_print = _rich.print
-    _rich.print = lambda *a, **kw: None  # swallow alpaca's internal rich.print calls
-
     try:
         bars = _get_data_client().get_stock_bars(req)
         df = bars.df
@@ -129,8 +122,6 @@ def _get_bars(trading_client, symbol: str, timeframe: str = "1Hour", limit: int 
         time.sleep(0.5)
         bars = _get_data_client().get_stock_bars(req)
         df = bars.df
-    finally:
-        _rich.print = _original_print  # always restore
 
     if df is None:
         raise ValueError(f"No data returned for {symbol} from IEX feed")

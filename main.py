@@ -197,7 +197,7 @@ def scan_symbol(
         df = _get_bars(trading_client, symbol, timeframe=config.BAR_TIMEFRAME, limit=config.BAR_LIMIT)
         log.info("TRACE bars OK %s rows=%d", symbol, len(df))
     except Exception as exc:
-        log.error("TRACE bars FAILED %s: %s", symbol, exc)
+        log.error("TRACE bars FAILED %s: %s", symbol, exc, exc_info=True)
         return {"symbol": symbol, "error": str(exc)}
 
     if df.empty or len(df) < 25:

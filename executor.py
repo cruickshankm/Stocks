@@ -122,14 +122,14 @@ def execute_long(
         logger.error("Long order %s did not fill; skipping bracket orders", order_id)
         return {"order": submitted, "fill_price": None, "stop": None, "target": None}
 
-    stop_price   = round(fill_price * (1 - stop_loss_pct), 4)
-    target_price = round(fill_price * (1 + take_profit_pct), 4)
+    stop_price   = round(fill_price * (1 - stop_loss_pct), 2)
+    target_price = round(fill_price * (1 + take_profit_pct), 2)
 
     stop_order   = _place_stop(client, symbol, shares, stop_price, OrderSide.SELL)
     target_order = _place_limit(client, symbol, shares, target_price, OrderSide.SELL)
 
     logger.info(
-        "LONG %s filled @ %.4f | stop=%.4f | target=%.4f",
+        "LONG %s filled @ %.4f | stop=%.2f | target=%.2f",
         symbol, fill_price, stop_price, target_price,
     )
 
@@ -177,14 +177,14 @@ def execute_short(
         logger.error("Short order %s did not fill; skipping bracket orders", order_id)
         return {"order": submitted, "fill_price": None, "stop": None, "target": None}
 
-    stop_price   = round(fill_price * (1 + stop_loss_pct), 4)
-    target_price = round(fill_price * (1 - take_profit_pct), 4)
+    stop_price   = round(fill_price * (1 + stop_loss_pct), 2)
+    target_price = round(fill_price * (1 - take_profit_pct), 2)
 
     stop_order   = _place_stop(client, symbol, shares, stop_price, OrderSide.BUY)
     target_order = _place_limit(client, symbol, shares, target_price, OrderSide.BUY)
 
     logger.info(
-        "SHORT %s filled @ %.4f | stop=%.4f | target=%.4f",
+        "SHORT %s filled @ %.4f | stop=%.2f | target=%.2f",
         symbol, fill_price, stop_price, target_price,
     )
 

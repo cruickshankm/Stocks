@@ -101,14 +101,20 @@ def _get_bars(trading_client, symbol: str, timeframe: str = "1Hour", limit: int 
     tf = _tf_map.get(timeframe, _TimeFrame(1, _TimeFrameUnit.Hour))
 
     end = datetime.now(timezone.utc)
-    start = end - timedelta(days=60)
+    # IMPORTANT: passing both `start` and `limit` to Alpaca returns the OLDEST
+    # `limit` bars in the window, not the newest. We therefore omit `limit` and
+    # size the lookback window per timeframe, then keep the most recent `limit`
+    # bars via df.tail() after sorting.
+    _lookback_days = {
+        "1Min": 7, "5Min": 21, "15Min": 45, "1Hour": 120, "1Day": 800,
+    }.get(timeframe, 7)
+    start = end - timedelta(days=_lookback_days)
 
     req = _StockBarsRequest(
         symbol_or_symbols=symbol,
         timeframe=tf,
         start=start,
         end=end,
-        limit=limit,
         feed=_DataFeed.IEX,
     )
 
@@ -135,6 +141,11 @@ def _get_bars(trading_client, symbol: str, timeframe: str = "1Hour", limit: int 
     df = df.rename(columns=str.lower)
     df.index = pd.to_datetime(df.index, utc=True)
     df = df.sort_index()
+
+    # Keep only the most recent `limit` bars. The window above deliberately
+    # fetches more than needed to guarantee we have up-to-date data.
+    if limit and len(df) > limit:
+        df = df.tail(limit)
 
     return df
 

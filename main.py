@@ -380,12 +380,8 @@ def scan_symbol(
                 direction=direction_label,
                 shares=shares_executed,
                 fill_price=execution["fill_price"],
-                stop_price=(
-                    execution["stop"].stop_price if execution.get("stop") else None
-                ),
-                target_price=(
-                    execution["target"].limit_price if execution.get("target") else None
-                ),
+                stop_price=execution.get("stop"),
+                target_price=execution.get("target"),
                 decision_id=decision_id,
             )
     else:

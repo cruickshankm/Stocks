@@ -19,7 +19,7 @@ from alpaca.trading.requests import (
     StopLossRequest,
     TrailingStopOrderRequest,
 )
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderType
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderType, OrderClass
 
 import config
 
@@ -97,36 +97,44 @@ def execute_long(
     shares: int,
     stop_loss_pct: float,
     take_profit_pct: float,
+    current_price: float,
     trading_client: Optional[TradingClient] = None,
 ) -> dict:
     """
-    Opens a long (buy) position via a market order, then places
-    stop-loss and take-profit bracket orders once the fill price is known.
+    Opens a long (buy) position via a single BRACKET market order with an
+    attached take-profit (limit) and stop-loss (stop) as an OCO pair.
+
+    Bracket levels are computed from current_price because Alpaca requires the
+    TP/SL prices at submission time (before the market order fills). The market
+    fill is essentially current_price for liquid symbols.
     """
     client = trading_client or get_trading_client()
+
+    stop_price   = round(current_price * (1 - stop_loss_pct), 2)
+    target_price = round(current_price * (1 + take_profit_pct), 2)
 
     order_req = MarketOrderRequest(
         symbol=symbol,
         qty=shares,
         side=OrderSide.BUY,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=TimeInForce.GTC,
+        order_class=OrderClass.BRACKET,
+        take_profit=TakeProfitRequest(limit_price=target_price),
+        stop_loss=StopLossRequest(stop_price=stop_price),
     )
 
-    logger.info("Submitting LONG market order: %s x%d", symbol, shares)
+    logger.info(
+        "Submitting LONG bracket order: %s x%d | stop=%.2f | target=%.2f",
+        symbol, shares, stop_price, target_price,
+    )
     submitted = client.submit_order(order_req)
     order_id = str(submitted.id)
-    logger.info("Long order submitted — id=%s", order_id)
+    logger.info("Long bracket order submitted — id=%s", order_id)
 
     fill_price = _wait_for_fill(order_id, client)
     if fill_price is None:
-        logger.error("Long order %s did not fill; skipping bracket orders", order_id)
+        logger.error("Long order %s did not fill", order_id)
         return {"order": submitted, "fill_price": None, "stop": None, "target": None}
-
-    stop_price   = round(fill_price * (1 - stop_loss_pct), 2)
-    target_price = round(fill_price * (1 + take_profit_pct), 2)
-
-    stop_order   = _place_stop(client, symbol, shares, stop_price, OrderSide.SELL)
-    target_order = _place_limit(client, symbol, shares, target_price, OrderSide.SELL)
 
     logger.info(
         "LONG %s filled @ %.4f | stop=%.2f | target=%.2f",
@@ -136,8 +144,8 @@ def execute_long(
     return {
         "order": submitted,
         "fill_price": fill_price,
-        "stop": stop_order,
-        "target": target_order,
+        "stop": stop_price,
+        "target": target_price,
         "direction": "long",
     }
 
@@ -149,39 +157,48 @@ def execute_short(
     shares: int,
     stop_loss_pct: float,
     take_profit_pct: float,
+    current_price: float,
     trading_client: Optional[TradingClient] = None,
 ) -> dict:
     """
-    Opens a short position via Alpaca (requires a margin account).
+    Opens a short position via a single BRACKET market order (requires a margin
+    account). The take-profit (limit) and stop-loss (stop) are attached as an
+    OCO pair so only one full-size closing order exists at a time.
 
     For shorts:
-      Stop loss  is ABOVE entry price (price rising = loss).
+      Stop loss   is ABOVE entry price (price rising = loss).
       Take profit is BELOW entry price (price falling = profit).
+
+    Bracket levels are computed from current_price because Alpaca requires them
+    at submission time (before the market order fills).
     """
     client = trading_client or get_trading_client()
+
+    stop_price   = round(current_price * (1 + stop_loss_pct), 2)
+    target_price = round(current_price * (1 - take_profit_pct), 2)
 
     order_req = MarketOrderRequest(
         symbol=symbol,
         qty=shares,
         side=OrderSide.SELL,       # SELL to open short
-        time_in_force=TimeInForce.DAY,
+        time_in_force=TimeInForce.GTC,
+        order_class=OrderClass.BRACKET,
+        take_profit=TakeProfitRequest(limit_price=target_price),
+        stop_loss=StopLossRequest(stop_price=stop_price),
     )
 
-    logger.info("Submitting SHORT market order: %s x%d", symbol, shares)
+    logger.info(
+        "Submitting SHORT bracket order: %s x%d | stop=%.2f | target=%.2f",
+        symbol, shares, stop_price, target_price,
+    )
     submitted = client.submit_order(order_req)
     order_id = str(submitted.id)
-    logger.info("Short order submitted — id=%s", order_id)
+    logger.info("Short bracket order submitted — id=%s", order_id)
 
     fill_price = _wait_for_fill(order_id, client)
     if fill_price is None:
-        logger.error("Short order %s did not fill; skipping bracket orders", order_id)
+        logger.error("Short order %s did not fill", order_id)
         return {"order": submitted, "fill_price": None, "stop": None, "target": None}
-
-    stop_price   = round(fill_price * (1 + stop_loss_pct), 2)
-    target_price = round(fill_price * (1 - take_profit_pct), 2)
-
-    stop_order   = _place_stop(client, symbol, shares, stop_price, OrderSide.BUY)
-    target_order = _place_limit(client, symbol, shares, target_price, OrderSide.BUY)
 
     logger.info(
         "SHORT %s filled @ %.4f | stop=%.2f | target=%.2f",
@@ -191,8 +208,8 @@ def execute_short(
     return {
         "order": submitted,
         "fill_price": fill_price,
-        "stop": stop_order,
-        "target": target_order,
+        "stop": stop_price,
+        "target": target_price,
         "direction": "short",
     }
 
@@ -351,9 +368,9 @@ def execute_trade(
     shares = calculate_shares(portfolio_value, current_price, modifier)
 
     if action == "buy":
-        return execute_long(symbol, shares, stop_loss_pct, take_profit_pct, client)
+        return execute_long(symbol, shares, stop_loss_pct, take_profit_pct, current_price, client)
     elif action == "sell":
-        return execute_short(symbol, shares, stop_loss_pct, take_profit_pct, client)
+        return execute_short(symbol, shares, stop_loss_pct, take_profit_pct, current_price, client)
     else:
         logger.warning("Unknown action '%s' for %s — holding", action, symbol)
         return None

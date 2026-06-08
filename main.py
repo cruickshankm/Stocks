@@ -193,6 +193,35 @@ def _is_market_open() -> bool:
 
 # ─── Single symbol scan ───────────────────────────────────────────────────────
 
+def _confirmation_only_decision(symbol: str, confirmation_report: dict) -> dict:
+    """
+    Build a trade decision directly from the confirmation engine (no AI).
+
+    Used both when USE_AI=false and as the fallback when Claude is unavailable,
+    so the bot always has a working decision path on the proven strategy.
+    """
+    direction = confirmation_report.get("direction", "no_trade")
+    confirmed = confirmation_report.get("confirmed", False)
+    grade = confirmation_report.get("quality", "F")
+    size_modifier = {"A": 1.0, "B": 0.9, "C": 0.75}.get(grade, 0.0)
+    _grade_rank = {"A": 3, "B": 2, "C": 1}
+    grade_ok = _grade_rank.get(grade, 0) >= _grade_rank.get(config.MIN_GRADE, 1)
+    action = direction if confirmed and direction in ("buy", "sell") and grade_ok else "hold"
+    return {
+        "action": action,
+        "confidence": confirmation_report.get("avg_confirming_strength", 0.0),
+        "reasoning": f"Confirmation engine decision. {confirmation_report.get('summary', '')}",
+        "stop_loss_pct": config.STOP_LOSS_PCT,
+        "take_profit_pct": config.TAKE_PROFIT_PCT,
+        "position_size_modifier": size_modifier,
+        "confirmation_quality": grade,
+        "signal_count": confirmation_report.get("signal_count", "0/4"),
+        "overriding_confirmation": False,
+        "override_reason": None,
+        "symbol": symbol,
+    }
+
+
 def scan_symbol(
     symbol: str,
     trading_client,
@@ -253,7 +282,10 @@ def scan_symbol(
     portfolio_context["current_position"] = _get_current_position(trading_client, symbol)
 
     if config.USE_AI:
-        # Ask Claude for a decision
+        # Ask Claude for a decision. If Claude is unavailable for ANY reason
+        # (out of credit, API error, timeout, bad response), fall back to the
+        # confirmation-engine decision so the bot keeps trading on the proven
+        # strategy rather than stopping.
         try:
             decision = get_trade_decision(
                 symbol=symbol,
@@ -262,33 +294,18 @@ def scan_symbol(
                 portfolio_context=portfolio_context,
             )
         except Exception as exc:
-            log.error("Claude error for %s: %s", symbol, exc)
-            return {**result, "error": f"Claude error: {exc}"}
+            log.error(
+                "Claude error for %s: %s — falling back to confirmation engine",
+                symbol, exc,
+            )
+            decision = _confirmation_only_decision(symbol, confirmation_report)
+            decision["reasoning"] = f"AI fallback (Claude unavailable: {exc}). " + decision["reasoning"]
     else:
         # Build decision directly from confirmation engine — no AI involved
-        direction = confirmation_report.get("direction", "no_trade")
-        confirmed = confirmation_report.get("confirmed", False)
-        grade = confirmation_report.get("quality", "F")
-        size_modifier = {"A": 1.0, "B": 0.9, "C": 0.75}.get(grade, 0.0)
-        _grade_rank = {"A": 3, "B": 2, "C": 1}
-        grade_ok = _grade_rank.get(grade, 0) >= _grade_rank.get(config.MIN_GRADE, 1)
-        action = direction if confirmed and direction in ("buy", "sell") and grade_ok else "hold"
-        decision = {
-            "action": action,
-            "confidence": confirmation_report.get("avg_confirming_strength", 0.0),
-            "reasoning": f"USE_AI=false — acting on confirmation engine alone. {confirmation_report.get('summary', '')}",
-            "stop_loss_pct": config.STOP_LOSS_PCT,
-            "take_profit_pct": config.TAKE_PROFIT_PCT,
-            "position_size_modifier": size_modifier,
-            "confirmation_quality": grade,
-            "signal_count": confirmation_report.get("signal_count", "0/4"),
-            "overriding_confirmation": False,
-            "override_reason": None,
-            "symbol": symbol,
-        }
+        decision = _confirmation_only_decision(symbol, confirmation_report)
         log.info(
             "AI disabled — confirmation-only decision for %s: action=%s grade=%s",
-            symbol, action, grade,
+            symbol, decision["action"], decision["confirmation_quality"],
         )
 
     result["decision"] = decision

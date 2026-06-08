@@ -750,6 +750,23 @@ def run_once(symbols: list[str], trading_client, dashboard: Optional[LiveDashboa
     return trades_taken
 
 
+def _parse_symbol_stops(items: Optional[list[str]]) -> Optional[dict]:
+    """Parse repeatable --symbol-stop SYM=PCT args into {symbol: pct}."""
+    if not items:
+        return None
+    out: dict[str, float] = {}
+    for item in items:
+        if "=" not in item:
+            log.warning("Ignoring malformed --symbol-stop %r (expected SYM=PCT)", item)
+            continue
+        sym, _, pct = item.partition("=")
+        try:
+            out[sym.strip().upper()] = float(pct)
+        except ValueError:
+            log.warning("Ignoring --symbol-stop %r (PCT not a number)", item)
+    return out or None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Trading Bot")
     parser.add_argument(
@@ -849,6 +866,17 @@ def main() -> None:
             "to target; for a 6%% target that means 0.9%%)."
         ),
     )
+    parser.add_argument(
+        "--symbol-stop",
+        action="append",
+        default=None,
+        metavar="SYM=PCT",
+        help=(
+            "Per-symbol stop-loss override for live-backtest, repeatable. "
+            "e.g. --symbol-stop NVDA=0.04 gives NVDA a 4%% stop while others keep "
+            "the global STOP_LOSS_PCT. Useful for volatility-adjusted stops."
+        ),
+    )
     args = parser.parse_args()
 
     # Support comma-separated symbols: --symbol AAPL,MSFT,GLD
@@ -871,6 +899,7 @@ def main() -> None:
             timeout_bars=args.timeout_bars,
             timeout_min_progress_pct=args.timeout_progress,
             timeout_relative=args.timeout_relative,
+            symbol_stops=_parse_symbol_stops(args.symbol_stop),
         )
         print_live_backtest_report(result)
         sys.exit(0)

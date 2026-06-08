@@ -355,6 +355,7 @@ def run_live_backtest(
     timeout_bars: Optional[int] = None,
     timeout_min_progress_pct: Optional[float] = None,
     timeout_relative: bool = False,
+    symbol_stops: Optional[dict] = None,
 ) -> LiveBacktestResult:
     """
     Simulate live trading across all symbols simultaneously.
@@ -382,6 +383,7 @@ def run_live_backtest(
     _mode      = mode            or config.CONFIRMATION_MODE
     _shorts    = allow_shorts    if allow_shorts    is not None else config.ALLOW_SHORTS
     _stop      = stop_loss_pct   or config.STOP_LOSS_PCT
+    _symbol_stops = symbol_stops or {}
     _target    = take_profit_pct or config.TAKE_PROFIT_PCT
     _max_pos   = max_position_pct  or config.MAX_POSITION_SIZE
     _max_slots = max_open_positions if max_open_positions is not None else config.MAX_OPEN_POSITIONS
@@ -566,12 +568,16 @@ def run_live_backtest(
             max_dollars = capital * _max_pos * size_modifier
             shares = max(int(max_dollars / entry_price), 1)
 
+            # Per-symbol stop override (volatility-adjusted). Falls back to the
+            # global stop when the symbol is not listed.
+            _stop_sym = _symbol_stops.get(sym, _stop)
+
             if direction == "buy":
-                stop_price   = round(entry_price * (1 - _stop),   4)
+                stop_price   = round(entry_price * (1 - _stop_sym), 4)
                 target_price = round(entry_price * (1 + _target),  4)
                 sim_dir = "long"
             else:
-                stop_price   = round(entry_price * (1 + _stop),   4)
+                stop_price   = round(entry_price * (1 + _stop_sym), 4)
                 target_price = round(entry_price * (1 - _target),  4)
                 sim_dir = "short"
 
@@ -587,7 +593,7 @@ def run_live_backtest(
                 grade=grade,
                 signal_count=report["signal_count"],
                 confirmed=True,
-                trail_pct=_stop,
+                trail_pct=_stop_sym,
                 trail_high=entry_price,   # initialise at entry so trail starts from entry
                 trail_low=entry_price,
             )

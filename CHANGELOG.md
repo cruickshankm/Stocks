@@ -7,20 +7,62 @@ Each entry includes a full config snapshot so any version can be exactly reprodu
 
 ## ⏭ NEXT SESSION — PICK UP HERE
 
-**Status as of 2026-05-24 session end**
+**Status as of 2026-06-08 session end**
 
-Active config **REVERTED** to `WATCHLIST=UCO,QQQ,IWM,XLE,NVDA` (TQQQ + SOXL removed after disastrous 1-month test below).
-`BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, no timeout.
+Active config **unchanged**: `WATCHLIST=UCO,QQQ,IWM,XLE,NVDA`, `BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, no timeout.
+Three critical LIVE bugs were fixed in late May / early June (see entries below) — the bot is now mechanically correct and trading on live data with proper bracket exits.
 
 **🚫 DO NOT RE-TEST:**
-- **TQQQ and SOXL on 1Min bars** — total disaster (-2.76% in 1 month, SOXL alone -$2,637 over 29 trades at 17.2% win). 3x-leveraged ETFs are too volatile for a 1Min/2% stop strategy. They get chopped to pieces.
+- **TQQQ and SOXL on 1Min bars** — total disaster (-2.76% in 1 month). 3x-leveraged ETFs get chopped to pieces by the 2% stop.
+- **Trend filter ON** — tested 3× (Apr 14, Apr 15, May 23), loses every time in volatile conditions.
+- **Global stop 1.5% vs 2%** — 2% wins. Do not touch the global stop.
+- **Wider stops for NVDA (volatility-adjusted)** — tested 3% and 4% over 60 days (2026-06-08). Both WORSE than the 2% baseline (3%→+8.87%, 4%→+7.66% vs +9.36%). Widening the stop just enlarges each loss without converting losers to winners. NVDA's problem is signal quality, not stop width.
 
-**What to test next (safe ideas only):**
-1. **Non-leveraged ETF expansion** — try adding SPY (SPDR S&P 500), DIA (Dow), or XLK (tech sector) instead of leveraged products. These move ~1% per day, similar to current watchlist.
-2. **Tighter stop on XLE** — XLE fires 7–15 times per 60-day period at 40–43% win rate. Test global `STOP_LOSS_PCT=0.015` to see the impact (would also affect other symbols).
-3. **Capital scaling** — the strategy averages ~$780/week at $100k. To reach the $5k/week goal requires ~$640k capital. If strategy quality is confirmed, scaling capital is the fastest path to the weekly target.
+**What to test next (open questions):**
+1. **Drop NVDA — 60-day with vs without.** NVDA bled -$1,197 over the recent 4 weeks (0/4 wins live-backtest). It is the single worst symbol lately. Run `--live-backtest` with `WATCHLIST=UCO,QQQ,IWM,XLE` vs the current 5-symbol set over 60 days. (NOTE: earlier "remove UCO" test taught us not to drop a symbol on a short window — validate over 60d before committing.)
+2. **Non-leveraged ETF expansion** — SPY / DIA / XLK (NOT leveraged). Untested.
+3. **Capital scaling** — fastest path to the weekly $ goal if strategy quality holds.
 
 **Current 60-day baseline to beat:** +9.36% return, 22.72 Sharpe, 1.48% max DD, 55.6% win rate (60-day Mar 23–May 22, $100k, 1Min, UCO/QQQ/IWM/XLE/NVDA).
+
+---
+
+## [2026-06-08] Trial: per-symbol volatility-adjusted stops for NVDA — REJECTED
+
+**Author:** matthew
+**Session date:** 2026-06-08
+**Method:** Live-style backtest, 60-day (Mar 23 – May 22), $100k, only NVDA's stop varied
+
+---
+
+### Motivation
+
+4-week live-backtest (May 11 – Jun 8) showed NVDA going 0/4 with every loss a clean -2.00%
+stop-out (-$1,197 total) while the ETFs won 5/6. Hypothesis: NVDA is more volatile, so a
+fixed 2% stop is too tight and gets hit by normal noise. Test: give NVDA a wider stop only.
+
+**Code added (kept — harmless, defaults off):** `--symbol-stop SYM=PCT` CLI flag and
+`symbol_stops` param in `run_live_backtest`. Allows per-symbol stop overrides in backtests.
+
+### Results (60-day, only NVDA's stop changed)
+
+| NVDA stop | Total return | Sharpe | Win rate | NVDA P&L | NVDA win% | NVDA avg loss |
+|:---------:|:------------:|:------:|:--------:|:--------:|:---------:|:-------------:|
+| **2% (baseline)** | **+9.36%** | **22.72** | **55.6%** | +$905 | 40% | -$317 |
+| 3% | +8.87% | 20.89 | 55.6% | +$421 | 40% | -$475 |
+| 4% | +7.66% | 18.25 | 53.8% | -$773 | 25% | -$568 |
+
+### Key finding
+
+Widening NVDA's stop is **monotonically worse**. The wider stop does NOT rescue trades from
+reversing — they still go the wrong way and hit the (now larger) stop, so every loss just costs
+more (avg loss grows -$317 → -$475 → -$568). NVDA's issue is **entry signal quality in this
+period**, not stop width. A wider stop is the opposite of a fix.
+
+**Verdict: REJECT. Keep the global 2% stop. The real question is whether NVDA belongs in the
+watchlist at all — that needs a 60-day with/without comparison (see next-session list).**
+
+**Active config: unchanged.**
 
 ---
 

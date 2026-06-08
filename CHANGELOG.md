@@ -9,8 +9,17 @@ Each entry includes a full config snapshot so any version can be exactly reprodu
 
 **Status as of 2026-06-08 session end**
 
-Active config **unchanged**: `WATCHLIST=UCO,QQQ,IWM,XLE,NVDA`, `BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, no timeout.
+Active config CHANGED: **`WATCHLIST=UCO,QQQ,IWM,XLE,NVDA,XLK`** (XLK added — confirmed winner, see entry below).
+`BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, `MAX_OPEN_POSITIONS=6`, `MAX_POSITION_SIZE=0.166`, no timeout.
 Three critical LIVE bugs were fixed in late May / early June (see entries below) — the bot is now mechanically correct and trading on live data with proper bracket exits.
+
+**⚠ REMEMBER TO UPDATE THE SERVER `.env`** — the watchlist change must be applied to the live bot on AWS (`.env` is gitignored, so `git pull` does NOT update it). SSH in, edit `~/trading-app/.env`, restart the bot.
+
+**New 60-day baseline to beat: +11.32% return, 24.28 Sharpe, 1.48% max DD, 58.1% win rate** (60-day Mar 23–May 22, $100k, 1Min, UCO/QQQ/IWM/XLE/NVDA/XLK).
+
+**What to test next:**
+1. **More watchlist additions** — DIA also tested positive (+10.25%, but only 1 trade). Other untested non-leveraged candidates: XLF, XLV, SMH, GLD. Test each over 60d, keep winners. SPY/DIA are low-frequency (rarely trigger). Could also raise MAX_OPEN_POSITIONS + lower MAX_POSITION_SIZE to hold more at once.
+2. **Drop NVDA?** — still the weakest (recent 4-week -$1,197), though +$905 over the 60-day baseline. Validate with a 60-day with/without comparison before acting.
 
 **🚫 DO NOT RE-TEST:**
 - **TQQQ and SOXL on 1Min bars** — total disaster (-2.76% in 1 month). 3x-leveraged ETFs get chopped to pieces by the 2% stop.
@@ -24,6 +33,34 @@ Three critical LIVE bugs were fixed in late May / early June (see entries below)
 3. **Capital scaling** — fastest path to the weekly $ goal if strategy quality holds.
 
 **Current 60-day baseline to beat:** +9.36% return, 22.72 Sharpe, 1.48% max DD, 55.6% win rate (60-day Mar 23–May 22, $100k, 1Min, UCO/QQQ/IWM/XLE/NVDA).
+
+---
+
+## [2026-06-08] Watchlist expansion: ADD XLK (tech sector ETF) — ADOPTED
+
+**Author:** matthew
+**Session date:** 2026-06-08
+**Method:** Live-style backtest, 60-day (Mar 23 – May 22), $100k, added one symbol via `--symbol` (no other change)
+
+---
+
+### Candidates tested (each added to UCO,QQQ,IWM,XLE,NVDA)
+
+| Config | Return | Sharpe | Max DD | Win rate | PF | New symbol |
+|--------|:------:|:------:|:------:|:--------:|:--:|------------|
+| Baseline (5 symbols) | +9.36% | 22.72 | 1.48% | 55.6% | 3.46 | — |
+| + DIA | +10.25% | 24.14 | 1.48% | 57.1% | 3.68 | DIA: 1 trade, 100% win, +$886 |
+| **+ XLK 🏆** | **+11.32%** | **24.28** | **1.48%** | **58.1%** | **3.73** | XLK: 4 trades, 75% win, +$1,896 |
+
+**SPY skipped** — changelog shows it was removed earlier for generating ZERO trades over 60 days (too low-volatility for the 4-strategy confirmation to trigger). DIA is similarly low-frequency (1 trade).
+
+### Decision
+
+**ADD XLK.** It improved every metric — return +1.96pp, Sharpe up, win rate up, profit factor up, drawdown unchanged. XLK is tech-sector exposure with enough volatility to generate quality signals (75% win rate over 4 trades), unlike SPY/DIA which rarely fire.
+
+`WATCHLIST` changed `UCO,QQQ,IWM,XLE,NVDA` → `UCO,QQQ,IWM,XLE,NVDA,XLK` (6 symbols, still fits 6 position slots).
+
+DIA held in reserve — positive but only 1 trade; revisit if expanding slots.
 
 ---
 

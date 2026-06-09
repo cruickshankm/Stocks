@@ -7,19 +7,57 @@ Each entry includes a full config snapshot so any version can be exactly reprodu
 
 ## ⏭ NEXT SESSION — PICK UP HERE
 
-**Status as of 2026-06-08 session end**
+**Status as of 2026-06-09 session end**
 
-Active config CHANGED: **`WATCHLIST=UCO,QQQ,IWM,XLE,NVDA,XLK`** (XLK added — confirmed winner, see entry below).
-`BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, `MAX_OPEN_POSITIONS=6`, `MAX_POSITION_SIZE=0.166`, no timeout.
-Three critical LIVE bugs were fixed in late May / early June (see entries below) — the bot is now mechanically correct and trading on live data with proper bracket exits.
+Active config CHANGED: **`WATCHLIST=UCO,QQQ,IWM,XLE,XLK`** (NVDA DROPPED, XLK retained — see entry below).
+`BAR_TIMEFRAME=1Min`, `MIN_GRADE=B`, `MAX_OPEN_POSITIONS=6`, `MAX_POSITION_SIZE=0.166`, no timeout, USE_AI=false.
 
-**⚠ REMEMBER TO UPDATE THE SERVER `.env`** — the watchlist change must be applied to the live bot on AWS (`.env` is gitignored, so `git pull` does NOT update it). SSH in, edit `~/trading-app/.env`, restart the bot.
+**⚠ REMEMBER TO UPDATE THE SERVER `.env`** — watchlist change must be applied to the live bot on AWS (`.env` is gitignored, so `git pull` does NOT update it). SSH in, run the sed command, restart the bot.
 
-**New 60-day baseline to beat: +11.32% return, 24.28 Sharpe, 1.48% max DD, 58.1% win rate** (60-day Mar 23–May 22, $100k, 1Min, UCO/QQQ/IWM/XLE/NVDA/XLK).
+**New 60-day baseline to beat: +10.40% return, 26.89 Sharpe, 1.19% max DD, 61.5% win rate** (60-day Mar 23–May 22, $100k, 1Min, UCO/QQQ/IWM/XLE/XLK — no NVDA).
 
 **What to test next:**
-1. **More watchlist additions** — DIA also tested positive (+10.25%, but only 1 trade). Other untested non-leveraged candidates: XLF, XLV, SMH, GLD. Test each over 60d, keep winners. SPY/DIA are low-frequency (rarely trigger). Could also raise MAX_OPEN_POSITIONS + lower MAX_POSITION_SIZE to hold more at once.
-2. **Drop NVDA?** — still the weakest (recent 4-week -$1,197), though +$905 over the 60-day baseline. Validate with a 60-day with/without comparison before acting.
+1. **More watchlist additions** — XLK worked great. Untested non-leveraged candidates: XLF (financials), XLV (health), SMH (semis), GLD (gold). Test each over 60d, keep winners. (SPY/DIA are too low-frequency — rarely trigger.)
+2. **AI veto layer** — `test_ai_day.py` shows Claude rubber-stamps the engine (9/9 agree). If revisiting AI, re-prompt it as a critical filter, not a confirmer. USE_AI currently false.
+
+---
+
+## [2026-06-09] Strategy refinement: DROP NVDA — ADOPTED
+
+**Author:** matthew
+**Session date:** 2026-06-09
+**Method:** Live-style backtest, with-vs-without NVDA across TWO 60-day periods, $100k
+
+---
+
+### Motivation
+
+NVDA was the worst performer in every recent window: -$1,197 (4-week, 0/4 wins) and
+-$625 (60-day Apr 10–Jun 9, 16.7% win). It was +$905 over the older Mar–May baseline,
+so we validated across both periods before acting (lesson from the earlier "remove UCO"
+near-mistake: don't drop a symbol on a short window).
+
+### Results — with vs without NVDA, both periods
+
+| | Recent (Apr10–Jun9) with | no NVDA | Baseline (Mar23–May22) with | no NVDA |
+|---|:-:|:-:|:-:|:-:|
+| Return | +1.43% | **+2.05%** | **+11.32%** | +10.40% |
+| Sharpe | 4.80 | **9.18** | 24.28 | **26.89** |
+| Win rate | 36.4% | **43.8%** | 58.1% | **61.5%** |
+| Max DD | 1.48% | **1.19%** | 1.48% | **1.19%** |
+
+### Decision
+
+**DROP NVDA.** Removing it improves **risk-adjusted return (Sharpe), win rate, and max
+drawdown in BOTH periods.** The only cost is ~0.9pp lower raw return in the strong period —
+but it adds return in the weak period. NVDA's contribution was extra raw upside in trending
+markets bought with higher volatility, more losers, and deeper drawdowns. Removing it makes
+the strategy more consistent and higher win-rate — better for steady compounding.
+
+`WATCHLIST` changed `UCO,QQQ,IWM,XLE,NVDA,XLK` → `UCO,QQQ,IWM,XLE,XLK` (5 symbols).
+
+**Server update command:**
+`sed -i 's/^WATCHLIST=.*/WATCHLIST=UCO,QQQ,IWM,XLE,XLK/' ~/trading-app/.env`
 
 **🚫 DO NOT RE-TEST:**
 - **TQQQ and SOXL on 1Min bars** — total disaster (-2.76% in 1 month). 3x-leveraged ETFs get chopped to pieces by the 2% stop.
